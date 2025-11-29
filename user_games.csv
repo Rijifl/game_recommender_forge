@@ -1,0 +1,3 @@
+name,name_lower,genre,developer,popular_tags,desc_snippet,minimum_requirements,original_price,sentiment,percentage,publisher,clean_tags,Feature_Text
+Valorant,valorant,"Action, Shooter",Riot Games,"['competitive', 'action', 'multiplayer', 'fps']",,,,No reviews,,,competitive action multiplayer fps,
+Minecraft,minecraft,Survival,Mojang Studios,"['survival', 'adventure', 'singleplayer', 'multiplayer']",,,,No reviews,,,survival adventure singleplayer multiplayer,
