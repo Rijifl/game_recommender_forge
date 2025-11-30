@@ -1,5 +1,7 @@
 import streamlit as st
 import pandas as pd
+import unicodedata
+import re   # <-- REQUIRED for clean_name
 
 from game_recommender import (
     clean_tags,
@@ -9,6 +11,29 @@ from game_recommender import (
     load_user_data,
     extract_sentiment_and_percentage,
 )
+
+# ---------------------------------------
+# NEW: CLEAN NAME FUNCTION
+# ---------------------------------------
+def clean_name(name: str) -> str:
+    """Normalize Unicode, remove symbols like ®™, fix dashes, lowercase."""
+    if not isinstance(name, str):
+        return ""
+
+    name = unicodedata.normalize("NFKD", name)  # normalize fancy chars
+
+    # remove trademark symbols
+    name = re.sub(r"[®©™]", "", name)
+
+    # convert fancy dashes
+    name = name.replace("–", "-").replace("—", "-")
+
+    # collapse spaces
+    name = re.sub(r"\s+", " ", name)
+
+    return name.strip().lower()
+
+
 
 # ---------------------------------------
 # LOAD DATA (CACHED)
@@ -51,6 +76,9 @@ def load_steam():
     # ---------- 5. Lowercase name again ----------
     df["name_lower"] = df["name"].astype(str).str.lower().str.strip()
 
+    # ---------- 5.5 ADD CLEAN NAME COLUMN ----------
+    df["name_clean"] = df["name"].astype(str).apply(clean_name)
+
     # ---------- 6. Keep ONLY these exact columns ----------
     columns_to_keep = [
         "name",
@@ -62,7 +90,8 @@ def load_steam():
         "publisher",
         "desc_snippet",
         "minimum_requirements",
-        "original_price"
+        "original_price",
+        "name_clean",            # <-- ADD THIS
     ]
     df = df[columns_to_keep].copy()
 
@@ -90,11 +119,6 @@ def load_steam():
 
     df = df.drop(columns=["all_reviews"])
 
-    # ---------- 11. Now extract sentiment from old column BEFORE rebuild ----------
-    # NOTE: all_reviews is removed so sentiment/percentage will be empty for Steam games.
-    # This matches your NOTEBOOK BEFORE you merged your cleaned review data.
-    # If you want them, you must re-add extract_sentiment here.
-    
     # ---------- 12. Build clean_tags ----------
     df["clean_tags"] = df["popular_tags"].apply(lambda lst: clean_tags(" ".join(lst)))
 
@@ -111,21 +135,25 @@ df, df_user, vectorizer, feature_matrix = load_steam()
 # ---------------------------------------
 # UI
 # ---------------------------------------
-st.title("🎮 Game Recommendation Engine")
+st.title("Game Recommendation Engine")
 
 user_title = st.text_input("Enter a game name:")
 
 if user_title:
-    title_lower = user_title.lower().strip()
 
-    steam_names = set(df["name_lower"])
-    user_names = set(df_user["name_lower"]) if len(df_user) > 0 else set()
+    # NEW: CLEAN USER INPUT NAME
+    title_clean = clean_name(user_title)
+
+    # Build sets of cleaned names
+    steam_names = set(df["name_clean"])
+    user_names = set(df_user["name_lower"].apply(clean_name)) if len(df_user) > 0 else set()
+
     all_names = steam_names | user_names
 
     # -----------------------------
     # CASE A: game is known (Steam or user)
     # -----------------------------
-    if title_lower in all_names:
+    if title_clean in all_names:
         st.subheader(f"Recommendations for '{user_title}'")
 
         try:
@@ -176,7 +204,7 @@ if user_title:
 
             new_row = {
                 "name": user_title,
-                "name_lower": title_lower,
+                "name_lower": user_title.lower().strip(),
                 "genre": genre,
                 "developer": dev,
                 "popular_tags": raw_tags,
@@ -184,10 +212,12 @@ if user_title:
                 "sentiment": "No reviews",
                 "percentage": None,
                 "original_price": "",
+                "name_clean": title_clean,   # <-- ADD THIS
             }
 
             df_user.loc[len(df_user)] = new_row
             df_user.to_csv("user_games.csv", index=False)
 
             st.success(f"'{user_title}' added successfully! Now you can search it again.")
+            st.cache_data.clear()
             st.rerun()

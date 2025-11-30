@@ -1,6 +1,8 @@
 import pandas as pd
 import numpy as np
 import re
+import unicodedata
+import re
 
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
@@ -15,6 +17,17 @@ def extract_sentiment_and_percentage(df, column_name):
     df['percentage'] = df[column_name].str.extract(r'(\d+)%', expand=False).astype('Int64')
     
     return df
+
+def clean_name(name: str) -> str:
+    """Normalize title so user input matches dataset names (removes ®, fancy dashes, etc.)."""
+    if not isinstance(name, str):
+        return ""
+
+    name = unicodedata.normalize("NFKD", name)
+    name = re.sub(r"[®©™]", "", name)           # drop trademark symbols
+    name = name.replace("–", "-").replace("—", "-")  # fancy dashes → normal -
+    name = re.sub(r"\s+", " ", name)            # collapse spaces
+    return name.strip().lower()
 
 def clean_tags(tag_list):
     """
@@ -91,34 +104,26 @@ def same_franchise(title1, title2):
     return prefix1 == prefix2
 
 def recommend_game(title, df, df_user, vectorizer, feature_matrix, top_n=5):
-    # --- your original setup, unchanged ---
-    df = df.reset_index(drop=True)
-    title_lower = title.lower().strip()
-    df["name_lower"] = df["name"].str.lower().str.strip()
-    
     df = df.reset_index(drop=True)
 
+    # ensure we have a clean-name column (works with or without frontend’s preprocessing)
+    if "name_clean" not in df.columns:
+        df["name_clean"] = df["name"].astype(str).apply(clean_name)
+
+    # use cleaned title for matching (handles ®, ™, fancy dashes, etc.)
+    title_clean = clean_name(title)
+    match = df[df["name_clean"] == title_clean]
+
+    # still keep lowercased name for your user-game logic later
     title_lower = title.lower().strip()
+    df["name_lower"] = df["name"].astype(str).str.lower().str.strip()
 
-    # Ensure lowercase name column
-    df["name_lower"] = df["name"].str.lower().str.strip()
-
-    # Look up the game
-    match = df[df["name_lower"] == title_lower]
-
-    # ---------------------------------------------------------------
-    # CASE 1: Game not found → in Streamlit, frontend handles this
-    # ---------------------------------------------------------------
+    # if somehow nothing matches, just behave like before (no recs in Streamlit)
     if match.empty:
-        # In the CLI you asked the user for genre/dev/tags here.
-        # In Streamlit, we already have a form for that, so:
         return []
 
-    # ---------------------------------------------------------------
-    # CASE 2: Game is in dataset → compute similarities
-    # (this part is your logic, kept as-is)
-    # ---------------------------------------------------------------
-    idx = df.index[df["name_lower"] == title_lower][0]
+    # use the index from the clean-name match
+    idx = match.index[0]
 
     sims = cosine_similarity(feature_matrix[idx], feature_matrix)[0]
     quality_weight = df["percentage"].fillna(70) / 100
